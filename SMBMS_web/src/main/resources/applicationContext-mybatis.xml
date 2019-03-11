@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	   xmlns:aop="http://www.springframework.org/schema/aop"
+	   xmlns:p="http://www.springframework.org/schema/p"
+	   xmlns:tx="http://www.springframework.org/schema/tx"
+	   xmlns:context="http://www.springframework.org/schema/context"
+	   xsi:schemaLocation="
+            http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.5.xsd
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd
+            http://www.springframework.org/schema/context
+            http://www.springframework.org/schema/context/spring-context.xsd">
+
+	<context:component-scan base-package="cn.smbms.service"/>
+	<context:component-scan base-package="cn.smbms.dao"/>
+
+	<!-- 读取数据库配置文件 -->
+	<context:property-placeholder location="classpath:database.properties"/>
+
+	<!-- JNDI获取数据源(使用dbcp连接池) -->
+	<bean id="dataSource" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close" scope="singleton">
+		<property name="driverClassName" value="${driver}" />
+		<property name="url" value="${url}" />
+		<property name="username" value="${user}" />
+		<property name="password" value="${password}" />
+		<property name="initialSize" value="${initialSize}"/>
+		<property name="maxActive" value="${maxActive}"/>
+		<property name="maxIdle" value="${maxIdle}"/>
+		<property name="minIdle" value="${minIdle}"/>
+		<property name="maxWait" value="${maxWait}"/>
+		<property name="removeAbandonedTimeout" value="${removeAbandonedTimeout}"/>
+		<property name="removeAbandoned" value="${removeAbandoned}"/>
+		<!-- sql 心跳 -->
+		<property name= "testWhileIdle" value="true"/>
+		<property name= "testOnBorrow" value="false"/>
+		<property name= "testOnReturn" value="false"/>
+		<property name= "validationQuery" value="select 1"/>
+		<property name= "timeBetweenEvictionRunsMillis" value="60000"/>
+		<property name= "numTestsPerEvictionRun" value="${maxActive}"/>
+	</bean>
+
+	<!-- 事务管理 -->
+	<bean id="transactionManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+		<property name="dataSource" ref="dataSource"/>
+	</bean>
+
+	<!-- 配置mybitas SqlSessionFactoryBean-->
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="dataSource"/>
+		<property name="configLocation" value="classpath:mybatis-config.xml"/>
+	</bean>
+
+	<!-- AOP 事务处理 开始 -->
+	<aop:aspectj-autoproxy />
+	<aop:config  proxy-target-class="true">
+		<aop:pointcut expression="execution(* *cn.smbms.service..*(..))" id="transService"/>
+		<aop:advisor pointcut-ref="transService" advice-ref="txAdvice" />
+	</aop:config>
+	<tx:advice id="txAdvice" transaction-manager="transactionManager">
+		<tx:attributes>
+			<tx:method name="smbms*"  propagation="REQUIRED" rollback-for="Exception"  />
+		</tx:attributes>
+	</tx:advice>
+	<!-- AOP 事务处理 结束 -->
+
+	<bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
+		<property name="basePackage" value="cn.smbms.dao" />
+	</bean>
+
+	<!-- redis连接池配置-->
+	<bean id="jedisPoolConfig" class="redis.clients.jedis.JedisPoolConfig" >
+		<!--最大空闲数-->
+		<property name="maxIdle" value="${redis.maxIdle}" />
+		<!--连接池的最大数据库连接数  -->
+		<property name="maxTotal" value="${redis.maxTotal}" />
+		<!--最大建立连接等待时间-->
+		<property name="maxWaitMillis" value="${redis.maxWaitMillis}" />
+		<!--逐出连接的最小空闲时间 默认1800000毫秒(30分钟)-->
+		<property name="minEvictableIdleTimeMillis" value="${redis.minEvictableIdleTimeMillis}" />
+		<!--每次逐出检查时 逐出的最大数目 如果为负数就是 : 1/abs(n), 默认3-->
+		<property name="numTestsPerEvictionRun" value="${redis.numTestsPerEvictionRun}" />
+		<!--逐出扫描的时间间隔(毫秒) 如果为负数,则不运行逐出线程, 默认-1-->
+		<property name="timeBetweenEvictionRunsMillis" value="${redis.timeBetweenEvictionRunsMillis}" />
+		<!--是否在从池中取出连接前进行检验,如果检验失败,则从池中去除连接并尝试取出另一个-->
+		<property name="testOnBorrow" value="${redis.testOnBorrow}" />
+		<!--在空闲时检查有效性, 默认false  -->
+		<property name="testWhileIdle" value="${redis.testWhileIdle}" />
+	</bean >
+
+
+	<!--redis连接工厂  -->
+	<bean id="jedisConnectionFactory" class="org.springframework.data.redis.connection.jedis.JedisConnectionFactory" destroy-method="destroy">
+		<property name="poolConfig" ref="jedisPoolConfig"></property>
+		<property name="hostName" value="${redis.hostName}"></property>
+		<property name="port" value="${redis.port}"></property>
+		<property name="password" value="${redis.pwd}" />
+		<property name="timeout" value="${redis.timeout}"></property>
+		<property name="usePool" value="${redis.usePool}"></property>
+	</bean>
+
+	<!--redis操作模版,使用该对象可以操作redis  -->
+	<bean id="jedisTemplate" class="org.springframework.data.redis.core.RedisTemplate">
+		<property name="connectionFactory" ref="jedisConnectionFactory"></property>
+		<property name="keySerializer">
+			<bean class="org.springframework.data.redis.serializer.StringRedisSerializer"/>
+		</property>
+		<property name="hashKeySerializer">
+			<bean class="org.springframework.data.redis.serializer.StringRedisSerializer"/>
+		</property>
+		<property name="valueSerializer">
+			<bean class="org.springframework.data.redis.serializer.JdkSerializationRedisSerializer"/>
+		</property>
+		<property name="hashValueSerializer">
+			<bean class="org.springframework.data.redis.serializer.JdkSerializationRedisSerializer"/>
+		</property>
+		<property name="enableTransactionSupport" value="true"></property>
+	</bean>
+</beans>
